@@ -28,7 +28,9 @@ import urllib.request
 URL = "https://www.linkedin.com/ai-trainer/api/frontendAnnotationProjects?q=annotator"
 INTERVAL = 30 * 60
 STATE_FILE = os.environ.get("STATE_FILE", ".batches_state.json")
-EXPIRED_EXIT_CODE = 2  # lets a service manager (systemd) skip restarting on an expired cookie
+EXPIRED_EXIT_CODE = (
+    2  # lets a service manager (systemd) skip restarting on an expired cookie
+)
 
 
 class SessionExpired(Exception):
@@ -89,6 +91,10 @@ def notify_telegram(msg):
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not (token and chat_id):
+        print(
+            "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID not set; skipping Telegram notification.",
+            flush=True,
+        )
         return
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/sendMessage",
@@ -97,7 +103,9 @@ def notify_telegram(msg):
     )
     try:
         urllib.request.urlopen(req, timeout=30).close()
-    except Exception as e:  # a failed push must not stop the loop; the URL holds the token, so don't print it
+    except (
+        Exception
+    ) as e:  # a failed push must not stop the loop; the URL holds the token, so don't print it
         print("telegram error:", e, flush=True)
 
 
