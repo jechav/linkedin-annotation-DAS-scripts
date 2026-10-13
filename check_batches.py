@@ -101,8 +101,11 @@ def notify_telegram(msg):
         print("telegram error:", e, flush=True)
 
 
+def stamp():
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def notify(msg):
-    print(msg, flush=True)
     if sys.platform == "darwin":
         subprocess.run(
             [
@@ -134,6 +137,13 @@ def loop():
     while True:
         try:
             names, total = check()
+            print(
+                f"[{stamp()}] {len(names)} of {total} not paused"
+                + (":" if names else ""),
+                flush=True,
+            )
+            for n in names:
+                print(" -", n, flush=True)
             current = set(names)
             new = sorted(current - last)
             last = current  # before notify/save so a failure there can't cause repeat pings
@@ -144,7 +154,7 @@ def loop():
             notify(f"AI Trainer session expired. Re-copy LI_COOKIE and restart. ({e})")
             sys.exit(EXPIRED_EXIT_CODE)
         except Exception as e:  # keep looping on transient errors
-            print("error:", e, flush=True)
+            print(f"[{stamp()}] error:", e, flush=True)
         time.sleep(INTERVAL)
 
 

@@ -69,6 +69,16 @@ Example output:
  - Other Project / Batch 7 ID: 456 [ACTIVE]
 ```
 
+In `--loop` mode every check is logged with a timestamp, whether or not anything
+changed, and each unpaused batch is listed with its ID:
+
+```
+[2026-10-13 16:02:56] 0 of 14 not paused
+[2026-10-13 16:32:57] 2 of 14 not paused:
+ - Some Project / Batch A ID: 123 [ACTIVE]
+ - Other Project / Batch 7 ID: 456 [ACTIVE]
+```
+
 To keep the loop running in the background:
 
 ```bash
