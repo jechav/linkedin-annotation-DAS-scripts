@@ -64,7 +64,7 @@ def check():
                 total += 1
                 if pl.get("state") != "PAUSED":
                     active.append(
-                        f'{p.get("name", "?")} / {pl.get("name", "?")} [{pl.get("state")}]'
+                        f'{p.get("name", "?")} / {pl.get("name", "?")} ID: {pl.get("id", "-")} [{pl.get("state")}]'
                     )
         count = data.get("paging", {}).get("count", 0)
         if not projects or len(projects) < count:

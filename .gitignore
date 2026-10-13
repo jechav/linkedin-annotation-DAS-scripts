@@ -1,0 +1,26 @@
+# Secrets — never commit session cookies or env files
+.env
+.env.*
+!.env.example
+*.cookie
+cookies.txt
+*.curl
+
+# Local output (e.g. --dump captures, loop logs, --csv exports of your task history)
+*.log
+dump*.json
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
+
+# Claude Code local state
+.claude/
