@@ -1,0 +1,20 @@
+[Unit]
+Description=AI Trainer batch checker (Telegram notifications)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Edit User and the two paths below to match where you cloned the repo.
+User=batches
+WorkingDirectory=/home/batches/linkedin-annotation-DAS-scripts
+# Holds LI_COOKIE, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, STATE_FILE. Keep it chmod 600.
+EnvironmentFile=/etc/check-batches.env
+ExecStart=/usr/bin/python3 check_batches.py --loop
+Restart=on-failure
+RestartSec=60
+# Exit code 2 = LinkedIn session expired. Stay stopped until you refresh the cookie
+# and run `systemctl start check-batches`, instead of retrying with a dead cookie.
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=multi-user.target

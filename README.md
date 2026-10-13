@@ -16,7 +16,8 @@ Small personal helper scripts for annotators on LinkedIn's **AI Trainer** platfo
 
 - Python 3.9+ (`tasks_weeks.py` uses `zoneinfo`). Standard library only, nothing to install.
 - A logged-in LinkedIn browser session (see [Setup](#setup)).
-- macOS is optional; it only adds desktop notifications to `check_batches.py --loop`.
+- Optional: macOS adds desktop notifications, and a Telegram bot adds phone notifications
+  (see [Run on a server](#run-on-a-server-with-telegram-notifications)).
 
 ## Setup
 
@@ -44,15 +45,20 @@ Polls the projects endpoint and reports which annotation pipelines (batches) are
 **not paused**, so you know when new work opens up without refreshing the tasks page.
 
 - Follows pagination across all your projects.
-- In loop mode it checks every 30 minutes and only notifies when the set of unpaused
-  batches **changes**. On macOS it also shows a desktop notification via `osascript`.
+- In loop mode it checks every 30 minutes and only notifies about batches that **newly**
+  became unpaused. On macOS it shows a desktop notification via `osascript`, and if
+  Telegram is configured it also sends a phone message.
+- The set it has already told you about is saved to `STATE_FILE` (default
+  `.batches_state.json`), so restarting the loop does not repeat old notifications.
+  The first run notifies about everything currently open.
 
 ### Usage
 
 ```bash
-python3 check_batches.py --dump    # first run: print the response shape to confirm field names
-python3 check_batches.py           # check once and list unpaused batches
-python3 check_batches.py --loop    # check every 30 min, notify on changes
+python3 check_batches.py --dump         # first run: print the response shape to confirm field names
+python3 check_batches.py                # check once and list unpaused batches
+python3 check_batches.py --loop         # check every 30 min, notify about newly unpaused batches
+python3 check_batches.py --test-notify  # send one test notification and exit
 ```
 
 Example output:
@@ -78,6 +84,66 @@ To keep the loop running in the background:
 ```bash
 nohup python3 check_batches.py --loop > batches.log 2>&1 &
 ```
+
+### Run on a server with Telegram notifications
+
+To get a phone notification without keeping your own computer on, run the loop on an
+always-on Linux server (e.g. a small VPS) as a systemd service.
+
+> **Check this first.** The cookie comes from your own browser session, and LinkedIn may
+> reject it when it is replayed from a datacenter IP. On the server, run
+> `python3 check_batches.py --dump` once before setting anything up. If it prints
+> `HTTP 401/403`, this setup won't work from that server.
+
+**1. Create the Telegram bot** (once):
+
+1. In Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot` and follow
+   the prompts. Copy the bot token it gives you.
+2. Open a chat with your new bot and send it any message.
+3. Open `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser. The number at
+   `message.chat.id` is your `TELEGRAM_CHAT_ID`.
+
+**2. Set up the server:**
+
+```bash
+# as a non-root user, e.g. "batches"
+git clone https://github.com/jechav/linkedin-annotation-DAS-scripts.git
+cd linkedin-annotation-DAS-scripts
+
+# as root: create the env file (keep the single quotes around the cookie) and lock it down
+sudo install -m 600 -o root -g root /dev/null /etc/check-batches.env
+sudoedit /etc/check-batches.env
+```
+
+Put these lines in `/etc/check-batches.env`:
+
+```
+LI_COOKIE='paste-the-cookie-string-here'
+TELEGRAM_BOT_TOKEN='123456:ABC...'
+TELEGRAM_CHAT_ID='123456789'
+STATE_FILE='/home/batches/batches_state.json'
+```
+
+**3. Check the Telegram wiring, then start the service:**
+
+```bash
+set -a; source /etc/check-batches.env; set +a   # as root, or use sudo -E
+python3 check_batches.py --test-notify          # a message should arrive on your phone
+
+# edit User= and the paths in deploy/check-batches.service first
+sudo cp deploy/check-batches.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now check-batches
+journalctl -u check-batches -f                  # watch the log
+```
+
+**When the cookie expires** the service sends one Telegram message ("AI Trainer session
+expired") and stops, instead of retrying with a dead cookie. Re-copy the cookie (see
+[Setup](#setup)), update `LI_COOKIE` in `/etc/check-batches.env`, then run
+`sudo systemctl start check-batches`.
+
+The service only tells you about problems it can see. If the server itself goes down you
+won't get a message, so consider a heartbeat/dead-man's-switch service on top.
 
 ## `tasks_weeks.py`
 
@@ -156,6 +222,8 @@ Both send your cookie, `csrf-token` = `JSESSIONID`, and `x-restli-protocol-versi
 - **`Set LI_COOKIE first`**: the environment variable isn't set in this shell.
 - **`JSESSIONID not found in LI_COOKIE`**: you copied only part of the cookie string.
 - **`HTTP 401/403: session expired`**: sign in again and re-copy the cookie.
+- **`telegram error: ...`**: the push failed (wrong token or chat id, or you haven't
+  messaged the bot yet). The check itself keeps running.
 - **`Set LI_PROJECT_ID or pass --project ID`** (`tasks_weeks.py`): see
   [Usage](#usage-1) for where to find your `projectId`.
 - **`Unknown time zone`**: use an IANA name such as `Europe/Madrid` (see the
@@ -170,7 +238,8 @@ Both send your cookie, `csrf-token` = `JSESSIONID`, and `x-restli-protocol-versi
 Your `LI_COOKIE` value **is your logged-in LinkedIn session**. Anyone who has it can act
 as you.
 
-- Never hardcode it, commit it, paste it into issues, or share it.
+- Never hardcode it, commit it, paste it into issues, or share it. The same goes for your
+  Telegram bot token, which lets anyone send messages as your bot.
 - `--dump` output, logs and `--csv` exports contain your personal task data. `.env`,
   cookie files, `*.log` and `*.csv` are gitignored. Check `git status` before committing anyway.
 - If you think the cookie leaked, sign out of LinkedIn on all devices to invalidate the session.
