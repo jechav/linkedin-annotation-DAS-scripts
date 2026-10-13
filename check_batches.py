@@ -73,8 +73,11 @@ def check():
     return sorted(active), total
 
 
+def stamp():
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def notify(msg):
-    print(msg, flush=True)
     if sys.platform == "darwin":
         subprocess.run(
             [
@@ -102,6 +105,13 @@ def main():
     while True:
         try:
             names, total = check()
+            print(
+                f"[{stamp()}] {len(names)} of {total} not paused"
+                + (":" if names else ""),
+                flush=True,
+            )
+            for n in names:
+                print(" -", n, flush=True)
             if names != last:
                 notify(
                     f"{len(names)} unpaused: " + "; ".join(names)
@@ -110,7 +120,7 @@ def main():
                 )
                 last = names
         except Exception as e:  # keep looping on transient errors
-            print("error:", e, flush=True)
+            print(f"[{stamp()}] error:", e, flush=True)
         time.sleep(INTERVAL)
 
 
