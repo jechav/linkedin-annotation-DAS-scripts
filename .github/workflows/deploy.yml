@@ -17,7 +17,7 @@ jobs:
         with:
           host: ${{ secrets.ECHAMOR_DROPLET_HOST }}
           username: ${{ secrets.ECHAMOR_DROPLET_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          key: ${{ secrets.ECHAMOR_GA_SSH_PRIVATE_KEY }}
           envs: PATH_SSH_GH_KEY
           capture_stdout: true
           script: |
