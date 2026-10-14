@@ -48,10 +48,10 @@ def arg(name, default=None):
     return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
 
 
-def settings():
+def settings(need_project=True):
     """Read --project/--tz/--week0, falling back to LI_PROJECT_ID/LI_TZ/LI_WEEK0."""
     project = arg("--project", os.environ.get("LI_PROJECT_ID"))
-    if not project:
+    if not project and need_project:
         sys.exit("Set LI_PROJECT_ID or pass --project ID (see header).")
     tz_name = arg("--tz", os.environ.get("LI_TZ") or "UTC")
     try:

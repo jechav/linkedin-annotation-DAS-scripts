@@ -6,6 +6,7 @@ Small personal helper scripts for annotators on LinkedIn's **AI Trainer** platfo
 |---|---|
 | [`check_batches.py`](#check_batchespy) | "Is there any batch open for me right now?" |
 | [`tasks_weeks.py`](#tasks_weekspy) | "How many tasks and hours did I do each week?" |
+| [`task_scores.py`](#task_scorespy) | "What's my average review score, and which tasks scored worst / best?" |
 
 > **Unofficial.** This project is not affiliated with, endorsed by, or supported by LinkedIn.
 > It calls internal, undocumented endpoints that can change or disappear at any time.
@@ -14,14 +15,14 @@ Small personal helper scripts for annotators on LinkedIn's **AI Trainer** platfo
 
 ## Requirements
 
-- Python 3.9+ (`tasks_weeks.py` uses `zoneinfo`). Standard library only, nothing to install.
+- Python 3.9+ (`tasks_weeks.py` and `task_scores.py` use `zoneinfo`). Standard library only, nothing to install.
 - A logged-in LinkedIn browser session (see [Setup](#setup)).
 - Optional: macOS adds desktop notifications, and a Telegram bot adds phone notifications
   (see [Run on a server](#run-on-a-server-with-telegram-notifications)).
 
 ## Setup
 
-Both scripts authenticate the same way, by reusing your browser session cookie.
+All scripts authenticate the same way, by reusing your browser session cookie.
 
 1. Sign in at <https://www.linkedin.com/ai-trainer/tasks> in your browser.
 2. Open DevTools → **Network**, reload, right-click any `/ai-trainer/api/...` request
@@ -207,15 +208,94 @@ week                        tasks  canceled   hours
 total                         104         4
 ```
 
+## `task_scores.py`
+
+Reads the **review score** of every task you did and shows where you scored lower or
+higher. It lists your tasks exactly like `tasks_weeks.py` (everything except `CANCELED`,
+same paging), then fetches each task's detail and reads
+`currentVersionReview.annotationScore`. That is one request per task, so it fetches
+**3 at a time** and can save the results to a JSON file to re-analyse later without
+touching the network.
+
+- Tasks with no review score (the pipeline has no review stage, or the task hasn't been
+  reviewed yet) are counted as "unscored" and left out of the averages.
+- The score scale isn't assumed. Min and max come from your data.
+- Network errors and HTTP 429/5xx are retried (3 tries). A task that still fails is
+  reported and skipped. HTTP 401/403 stops the run, and `--save` still writes what was
+  fetched so far.
+- Saved files drop the bulky parts of the response (every pipeline of the project, the
+  template, your profile) and keep the rest, including the reviewer `feedback` text.
+- Needs `tasks_weeks.py` next to it: it reuses that script's paging, cookie handling and
+  week grouping.
+
+### Usage
+
+Set `LI_COOKIE` and `LI_PROJECT_ID` as for `tasks_weeks.py`.
+
+```bash
+python3 task_scores.py --limit 3                  # smoke test: only fetch 3 task details
+python3 task_scores.py --save scores_cache.json   # fetch everything, save it, print the report
+python3 task_scores.py --load scores_cache.json   # no network, no cookie: re-run the report
+python3 task_scores.py --load scores_cache.json --top 25 --low 2 --tz America/New_York
+```
+
+`--project`, `--tz`, `--week0` and `--date-field` work as in `tasks_weeks.py` (with the
+same environment variables). With `--load` the project isn't needed.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--workers N` | `3` | Task details fetched in parallel |
+| `--limit N` | all | Only fetch details for the first N tasks |
+| `--save FILE` | off | Write the fetched task details to FILE (JSON). Not combinable with `--load` |
+| `--load FILE` | off | Analyse FILE instead of fetching |
+| `--top N` | `10` | How many lowest and highest scored tasks to list (`0` = none) |
+| `--low N` | below your average | "Low" group = score ≤ N |
+| `--high N` | above your average | "High" group = score ≥ N |
+| `--count N` | `50` | First list page size to try |
+
+The report has these sections:
+
+1. **Coverage**: tasks with and without a score, and how many per review status.
+2. **Overall**: average, median, standard deviation, min, max, and a histogram per score.
+3. **By week**: scored / unscored tasks and avg / min / max per week, with the same
+   week rules as `tasks_weeks.py`.
+4. **By batch**: the same per pipeline, lowest average first. Look at the task counts
+   before trusting a batch with only one or two tasks.
+5. **Low vs high**: how many tasks fall in each group, and their average active and idle
+   minutes (the platform's `durationInSeconds` / `idleDurationInSeconds`).
+6. **Lowest and highest tasks**: score, date, task result id, title, batch, review status
+   and the reviewer's feedback. Ties are listed most recent first.
+
+Example output (shortened):
+
+```
+40 tasks: 32 with a review score, 8 without
+review status: APPROVED 24, REJECTED 8
+
+Average score: 3.34   median 3   stdev 1.18   min 1   max 5
+      1 | ███████ 2 (6%)
+      2 | ████████████████████ 6 (19%)
+      3 | ██████████████████████████████ 9 (28%)
+  ...
+By week, grouped by 'endedAt' (Mon-Sun, America/Bogota)
+week                       scored  unscored    avg   min   max
+2026-09-28 .. 2026-10-04        4         1   3.75     1     5
+  ...
+Lowest 10 (2 tasks scored 1), most recent first
+      1  2026-10-18  #7000032  Aesthetics/Functionality/Overall Website Preference - 032
+         batch: Testing_01  | review: REJECTED
+         > <the reviewer's feedback>
+```
+
 ## How it works
 
-| | `check_batches.py` | `tasks_weeks.py` |
-|---|---|---|
-| Endpoint | `GET /ai-trainer/api/frontendAnnotationProjects?q=annotator` | `GET /ai-trainer/api/frontendAnnotationTaskResults?q=annotator&projectId=…` |
-| Paging | `start` += page `count` | `start` += rows returned, until empty, duplicate or `paging.total` |
-| Key fields | `elements[].pipelines[].{name,id,state}` | `state`, a timestamp field, `durationInSeconds` |
+| | `check_batches.py` | `tasks_weeks.py` | `task_scores.py` |
+|---|---|---|---|
+| Endpoint | `GET /ai-trainer/api/frontendAnnotationProjects?q=annotator` | `GET /ai-trainer/api/frontendAnnotationTaskResults?q=annotator&projectId=…` | the `tasks_weeks.py` list, then `GET /ai-trainer/api/frontendAnnotationTaskResults/{id}` per task |
+| Paging | `start` += page `count` | `start` += rows returned, until empty, duplicate or `paging.total` | same as `tasks_weeks.py` for the list |
+| Key fields | `elements[].pipelines[].{name,id,state}` | `state`, a timestamp field, `durationInSeconds` | `currentVersionReview.{annotationScore,status,feedback}`, `pipeline.name`, `inputData.title` |
 
-Both send your cookie, `csrf-token` = `JSESSIONID`, and `x-restli-protocol-version: 2.0.0`.
+All send your cookie, `csrf-token` = `JSESSIONID`, and `x-restli-protocol-version: 2.0.0`.
 
 ## Troubleshooting
 
@@ -240,8 +320,9 @@ as you.
 
 - Never hardcode it, commit it, paste it into issues, or share it. The same goes for your
   Telegram bot token, which lets anyone send messages as your bot.
-- `--dump` output, logs and `--csv` exports contain your personal task data. `.env`,
-  cookie files, `*.log` and `*.csv` are gitignored. Check `git status` before committing anyway.
+- `--dump` output, logs, `--csv` exports and `--save` files (which include reviewer feedback)
+  contain your personal task data. `.env`, cookie files, `*.log`, `*.csv` and `scores*.json`
+  are gitignored. Check `git status` before committing anyway.
 - If you think the cookie leaked, sign out of LinkedIn on all devices to invalidate the session.
 
 ## License
