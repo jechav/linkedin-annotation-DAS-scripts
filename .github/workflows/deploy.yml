@@ -12,18 +12,14 @@ jobs:
       - name: Deploy to DigitalOcean droplet
         id: deploy
         uses: appleboy/ssh-action@v1.2.0
-        env:
-          PATH_SSH_GH_KEY: ${{ secrets.PATH_SSH_GH_KEY }}
         with:
           host: ${{ secrets.ECHAMOR_DROPLET_HOST }}
           username: ${{ secrets.ECHAMOR_DROPLET_USER }}
           key: ${{ secrets.ECHAMOR_GA_SSH_PRIVATE_KEY }}
-          envs: PATH_SSH_GH_KEY
           capture_stdout: true
           script: |
             set -e
             cd ${{ secrets.REPO_PATH }}
-            export GIT_SSH_COMMAND="ssh -i \"$PATH_SSH_GH_KEY\" -o IdentitiesOnly=yes"
             git pull origin main
             sudo systemctl restart check-batches
             sleep 5
