@@ -23,6 +23,6 @@ jobs:
             cd ${{ secrets.REPO_PATH }}
             export GIT_SSH_COMMAND="ssh -i \"$PATH_SSH_GH_KEY\" -o IdentitiesOnly=yes"
             git pull origin main
-            docker compose up --build -d
-            # Remove dangling images left by the build
-            docker image prune -f
+            sudo systemctl restart check-batches
+            echo "## 🚀 Results" >> $GITHUB_STEP_SUMMARY
+            echo "${journalctl -u check-batches -n 12}" >> $GITHUB_STEP_SUMMARY
