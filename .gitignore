@@ -9,6 +9,7 @@ cookies.txt
 # Local output (e.g. --dump captures, loop logs, --csv exports of your task history)
 *.log
 dump*.json
+scores*.json
 .batches_state.json*
 *.csv
 
