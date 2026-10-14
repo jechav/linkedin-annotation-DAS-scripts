@@ -10,19 +10,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to DigitalOcean droplet
+        id: deploy
         uses: appleboy/ssh-action@v1.2.0
-        env:
-          PATH_SSH_GH_KEY: ${{ secrets.PATH_SSH_GH_KEY }}
         with:
           host: ${{ secrets.ECHAMOR_DROPLET_HOST }}
           username: ${{ secrets.ECHAMOR_DROPLET_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: PATH_SSH_GH_KEY
+          key: ${{ secrets.ECHAMOR_GA_SSH_PRIVATE_KEY }}
+          capture_stdout: true
           script: |
             set -e
             cd ${{ secrets.REPO_PATH }}
-            export GIT_SSH_COMMAND="ssh -i \"$PATH_SSH_GH_KEY\" -o IdentitiesOnly=yes"
             git pull origin main
             sudo systemctl restart check-batches
-            echo "## 🚀 Results" >> $GITHUB_STEP_SUMMARY
-            echo "${journalctl -u check-batches -n 12}" >> $GITHUB_STEP_SUMMARY
+            sleep 5
+            journalctl -u check-batches -n 12 --no-pager
+            systemctl is-active --quiet check-batches
+
+      - name: Job summary
+        if: always()
+        env:
+          DEPLOY_LOG: ${{ steps.deploy.outputs.stdout }}
+        run: |
+          {
+            echo "## 🚀 Results"
+            echo '```'
+            echo "$DEPLOY_LOG"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
