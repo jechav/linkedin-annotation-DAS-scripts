@@ -26,7 +26,7 @@ import urllib.error
 import urllib.request
 
 URL = "https://www.linkedin.com/ai-trainer/api/frontendAnnotationProjects?q=annotator"
-INTERVAL = 60 * 60
+INTERVAL = 30 * 60
 STATE_FILE = os.environ.get("STATE_FILE", ".batches_state.json")
 EXPIRED_EXIT_CODE = (
     2  # lets a service manager (systemd) skip restarting on an expired cookie
