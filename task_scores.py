@@ -6,13 +6,13 @@ fetches each task's detail, a few at a time, and reads currentVersionReview.anno
 
 Setup (same cookie as the other scripts):
   export LI_COOKIE='<the -b cookie string from your cURL>'
-  export LI_PROJECT_ID=<your projectId>            # or pass --project every time
+  export LI_PROJECT_ID=<your projectId>            # optional: unset (or --project all) = every project
   python3 task_scores.py --limit 3                 # smoke test: only fetch 3 task details
   python3 task_scores.py --save scores_cache.json  # fetch everything, save it, print the report
   python3 task_scores.py --load scores_cache.json  # no network: re-run the report from the file
 
 Options (a flag wins over its environment variable):
-  --project ID             projectId (env LI_PROJECT_ID; required unless --load)
+  --project ID|all         projectId (env LI_PROJECT_ID; default: all your projects)
   --tz ZONE                IANA time zone, e.g. Europe/Madrid (env LI_TZ; default UTC)
   --week0 YYYY-MM-DD       first day of week 0 (env LI_WEEK0; default Monday-Sunday weeks)
   --date-field NAME        force the timestamp field (epoch ms) used for weeks
@@ -345,7 +345,7 @@ def main():
     load, save = arg("--load"), arg("--save")
     if load and save:
         sys.exit("--load and --save can't be combined: --load never fetches anything.")
-    project, tz, start_date = settings(need_project=not load)
+    project, tz, start_date = settings()
     week0 = start_date or MONDAY
 
     if load:

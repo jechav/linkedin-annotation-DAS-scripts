@@ -6,13 +6,13 @@ in the --tz time zone.
 
 Setup:
   export LI_COOKIE='<the -b cookie string from your cURL>'
-  export LI_PROJECT_ID=<your projectId>      # or pass --project every time
+  export LI_PROJECT_ID=<your projectId>      # optional: leave unset (or --project all) for every project
   python3 tasks_weeks.py --dump              # shows the response shape + which date field was detected
   python3 tasks_weeks.py                     # weekly summary
   python3 tasks_weeks.py --csv tasks.csv     # also write every task + its week to CSV
 
 Options (a flag wins over its environment variable):
-  --project ID             projectId (env LI_PROJECT_ID; required)
+  --project ID|all         projectId (env LI_PROJECT_ID; default: all your projects)
   --tz ZONE                IANA time zone, e.g. Europe/Madrid (env LI_TZ; default UTC)
   --week0 YYYY-MM-DD       first day of week 0; earlier weeks are tagged "(before start date)"
                            (env LI_WEEK0; default: none, Monday-Sunday weeks)
@@ -59,9 +59,15 @@ def arg(name, default=None):
     return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
 
 
-def settings(need_project=True):
-    """Read --project/--tz/--week0, falling back to LI_PROJECT_ID/LI_TZ/LI_WEEK0."""
-    project = arg("--project", os.environ.get("LI_PROJECT_ID"))
+def settings(need_project=False):
+    """Read --project/--tz/--week0, falling back to LI_PROJECT_ID/LI_TZ/LI_WEEK0.
+
+    project is None (= all your projects) when neither is set or when it is "all", which lets
+    a flag override an LI_PROJECT_ID exported in the environment.
+    """
+    project = arg("--project", os.environ.get("LI_PROJECT_ID")) or None
+    if project and project.strip().lower() == "all":
+        project = None
     if not project and need_project:
         sys.exit("Set LI_PROJECT_ID or pass --project ID (see header).")
     tz_name = arg("--tz", os.environ.get("LI_TZ") or "UTC")
@@ -101,7 +107,8 @@ def get(url):
 
 
 def page(project, start, count):
-    return get(f"{BASE}?q=annotator&start={start}&count={count}&projectId={project}")
+    scope = f"&projectId={project}" if project else ""
+    return get(f"{BASE}?q=annotator&start={start}&count={count}{scope}")
 
 
 def fetch_all(project, count):

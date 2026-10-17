@@ -183,7 +183,7 @@ so you can keep your defaults in `.env` (see `.env.example`).
 
 | Option | Env var | Default | Meaning |
 |---|---|---|---|
-| `--project ID` | `LI_PROJECT_ID` | **required** | AI Trainer `projectId` to report on |
+| `--project ID\|all` | `LI_PROJECT_ID` | all projects | AI Trainer `projectId` to report on. Unset = every project; `all` overrides an exported `LI_PROJECT_ID` |
 | `--tz ZONE` | `LI_TZ` | `UTC` | IANA time zone used to decide which day a task falls on |
 | `--week0 YYYY-MM-DD` | `LI_WEEK0` | none (Mon–Sun) | First day of week 0. Weeks start on its weekday |
 
@@ -230,7 +230,7 @@ touching the network.
 
 ### Usage
 
-Set `LI_COOKIE` and `LI_PROJECT_ID` as for `tasks_weeks.py`.
+Set `LI_COOKIE` as for `tasks_weeks.py`. `LI_PROJECT_ID` is optional: unset, it covers all your projects.
 
 ```bash
 python3 task_scores.py --limit 3                  # smoke test: only fetch 3 task details
@@ -305,8 +305,8 @@ All send your cookie, `csrf-token` = `JSESSIONID`, and `x-restli-protocol-versio
 - **`HTTP 302/401/403: session expired`**: sign in again and re-copy the cookie.
 - **`telegram error: ...`**: the push failed (wrong token or chat id, or you haven't
   messaged the bot yet). The check itself keeps running.
-- **`Set LI_PROJECT_ID or pass --project ID`** (`tasks_weeks.py`): see
-  [Usage](#usage-1) for where to find your `projectId`.
+- **Fewer tasks than the dashboard**: `LI_PROJECT_ID` (or `--project`) limits the report to one
+  project. Unset it, or pass `--project all`, to include every project.
 - **`Unknown time zone`**: use an IANA name such as `Europe/Madrid` (see the
   [tz database list](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)).
 - **`Could not detect a date field`** (`tasks_weeks.py`): run `--dump`, find the
