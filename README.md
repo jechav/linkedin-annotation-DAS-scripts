@@ -248,6 +248,7 @@ same environment variables). With `--load` the project isn't needed.
 | `--limit N` | all | Only fetch details for the first N tasks |
 | `--save FILE` | off | Write the fetched task details to FILE (JSON). Not combinable with `--load` |
 | `--load FILE` | off | Analyse FILE instead of fetching |
+| `--short` | off | Shorter report: skips the By batch table and the lowest / highest task lists |
 | `--top N` | `10` | How many lowest and highest scored tasks to list (`0` = none) |
 | `--low N` | below your average | "Low" group = score ≤ N |
 | `--high N` | above your average | "High" group = score ≥ N |

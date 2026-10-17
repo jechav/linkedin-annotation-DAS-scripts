@@ -21,6 +21,7 @@ Options (a flag wins over its environment variable):
   --limit N                only fetch details for the first N tasks
   --save FILE              write the fetched task details to FILE (JSON)
   --load FILE              read task details from FILE instead of fetching
+  --short                  shorter report: skip "By batch" and the lowest / highest task lists
   --top N                  how many lowest / highest scored tasks to list (default 10; 0 = none)
   --low N                  "low" group = score <= N      (default: score below your average)
   --high N                 "high" group = score >= N     (default: score above your average)
@@ -213,7 +214,7 @@ def show_tasks(heading, ts, field, tz):
             )
 
 
-def report(tasks, tz, week0, top, low_max, high_min):
+def report(tasks, tz, week0, top, low_max, high_min, short=False):
     scored = [t for t in tasks if score_of(t) is not None]
     reviewed = Counter(review(t).get("status") or "?" for t in tasks if review(t))
     print(
@@ -274,25 +275,31 @@ def report(tasks, tz, week0, top, low_max, high_min):
         if skipped:
             print(f"{skipped} tasks had no usable date and were skipped")
 
-    batches = defaultdict(lambda: {"scores": [], "unscored": 0})
-    for t in tasks:
-        s = score_of(t)
-        b = batches[batch_of(t)]
-        if s is None:
-            b["unscored"] += 1
-        else:
-            b["scores"].append(s)
-    print("\nBy batch, lowest average first")
-    print(f"{'batch':<62}{'scored':>7}{'unscored':>10}{'avg':>7}{'min':>6}{'max':>6}")
-    order = sorted(
-        batches.items(),
-        key=lambda kv: (not kv[1]["scores"], statistics.fmean(kv[1]["scores"] or [0])),
-    )
-    for name, b in order:
-        label = name if len(name) <= 60 else name[:57] + "..."
+    if not short:
+        batches = defaultdict(lambda: {"scores": [], "unscored": 0})
+        for t in tasks:
+            s = score_of(t)
+            b = batches[batch_of(t)]
+            if s is None:
+                b["unscored"] += 1
+            else:
+                b["scores"].append(s)
+        print("\nBy batch, lowest average first")
         print(
-            f"{label:<62}{len(b['scores']):>7}{b['unscored']:>10}{stat_cells(b['scores'])}"
+            f"{'batch':<62}{'scored':>7}{'unscored':>10}{'avg':>7}{'min':>6}{'max':>6}"
         )
+        order = sorted(
+            batches.items(),
+            key=lambda kv: (
+                not kv[1]["scores"],
+                statistics.fmean(kv[1]["scores"] or [0]),
+            ),
+        )
+        for name, b in order:
+            label = name if len(name) <= 60 else name[:57] + "..."
+            print(
+                f"{label:<62}{len(b['scores']):>7}{b['unscored']:>10}{stat_cells(b['scores'])}"
+            )
 
     is_low = (lambda s: s <= low_max) if low_max is not None else (lambda s: s < mean)
     is_high = (
@@ -313,7 +320,7 @@ def report(tasks, tz, week0, top, low_max, high_min):
             f"{label:<24}{len(g):>7}{avg_minutes(g, 'durationInSeconds'):>16}{avg_minutes(g, 'idleDurationInSeconds'):>14}"
         )
 
-    if top > 0:
+    if top > 0 and not short:
         recent = lambda t: -(
             t.get(field) if field and isinstance(t.get(field), (int, float)) else 0
         )
@@ -375,7 +382,10 @@ def main():
 
     if not tasks:
         return print("no tasks to analyse")
-    report(tasks, tz, week0, num("--top", int, 10), num("--low"), num("--high"))
+    report(
+        tasks, tz, week0, num("--top", int, 10), num("--low"), num("--high"),
+        "--short" in sys.argv,
+    )
 
 
 if __name__ == "__main__":
