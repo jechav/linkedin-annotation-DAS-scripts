@@ -33,8 +33,21 @@ EXPIRED_EXIT_CODE = (
 )
 
 
+EXPIRED_CODES = (301, 302, 303, 307, 308, 401, 403)  # 3xx = bounced to the login page
+
+
 class SessionExpired(Exception):
     pass
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """An expired cookie makes LinkedIn redirect to a login page; surface it instead of looping."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+OPENER = urllib.request.build_opener(NoRedirect)
 
 
 def fetch(start=0):
@@ -57,10 +70,10 @@ def fetch(start=0):
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with OPENER.open(req, timeout=30) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        if e.code in (401, 403):
+        if e.code in EXPIRED_CODES:
             raise SessionExpired(
                 f"HTTP {e.code}: session expired. Re-copy the cookie from your browser."
             )

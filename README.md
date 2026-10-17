@@ -38,7 +38,7 @@ All scripts authenticate the same way, by reusing your browser session cookie.
    Or copy `.env.example` to `.env` (gitignored), fill it in, and load it with
    `set -a; source .env; set +a`.
 
-The cookie expires. When a script says `HTTP 401/403: session expired`, repeat steps 1–4.
+The cookie expires. When a script says `HTTP 302/401/403: session expired`, repeat steps 1–4.
 
 ## `check_batches.py`
 
@@ -301,7 +301,7 @@ All send your cookie, `csrf-token` = `JSESSIONID`, and `x-restli-protocol-versio
 
 - **`Set LI_COOKIE first`**: the environment variable isn't set in this shell.
 - **`JSESSIONID not found in LI_COOKIE`**: you copied only part of the cookie string.
-- **`HTTP 401/403: session expired`**: sign in again and re-copy the cookie.
+- **`HTTP 302/401/403: session expired`**: sign in again and re-copy the cookie.
 - **`telegram error: ...`**: the push failed (wrong token or chat id, or you haven't
   messaged the bot yet). The check itself keeps running.
 - **`Set LI_PROJECT_ID or pass --project ID`** (`tasks_weeks.py`): see

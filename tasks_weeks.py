@@ -32,6 +32,17 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 BASE = "https://www.linkedin.com/ai-trainer/api/frontendAnnotationTaskResults"
+EXPIRED_CODES = (301, 302, 303, 307, 308, 401, 403)  # 3xx = bounced to the login page
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """An expired cookie makes LinkedIn redirect to a login page; surface it instead of looping."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+OPENER = urllib.request.build_opener(NoRedirect)
 MONDAY = date(2001, 1, 1)  # any Monday: anchors Mon-Sun weeks when no --week0 is given
 DATE_CANDIDATES = [
     "submittedAt",
@@ -85,7 +96,7 @@ def get(url):
             "(KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
         },
     )
-    with urllib.request.urlopen(req, timeout=60) as r:
+    with OPENER.open(req, timeout=60) as r:
         return json.load(r)
 
 
@@ -100,7 +111,7 @@ def fetch_all(project, count):
         try:
             data = page(project, start, count)
         except urllib.error.HTTPError as e:
-            if e.code in (401, 403):
+            if e.code in EXPIRED_CODES:
                 sys.exit(
                     f"HTTP {e.code}: session expired. Re-copy the cookie from your browser."
                 )
