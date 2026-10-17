@@ -38,6 +38,7 @@ from datetime import datetime, timedelta, timezone
 
 from tasks_weeks import (
     BASE,
+    EXPIRED_CODES,
     MONDAY,
     arg,
     detect_field,
@@ -102,7 +103,7 @@ def fetch_details(ids, workers):
             try:
                 done[futures[fut]] = fut.result()
             except urllib.error.HTTPError as e:
-                if e.code in (401, 403):
+                if e.code in EXPIRED_CODES:
                     stop = f"HTTP {e.code}: session expired. Re-copy the cookie from your browser."
                     break
                 failed.append((futures[fut], f"HTTP {e.code}"))
