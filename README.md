@@ -8,6 +8,7 @@ Small personal helper scripts for annotators on LinkedIn's **AI Trainer** platfo
 | [`tasks_weeks.py`](#tasks_weekspy) | "How many tasks and hours did I do each week?" |
 | [`task_scores.py`](#task_scorespy) | "What's my average review score, and which tasks scored worst / best?" |
 | [`task_scores.user.js`](#browser-userscript-task_scoresuserjs) | The same average and weekly table, one click away in your browser |
+| [`payment_audit.user.js`](#browser-userscript-payment_audituserjs) | "Did Greenlight pay me for every task, batch by batch?" |
 
 > **Unofficial.** This project is not affiliated with, endorsed by, or supported by LinkedIn.
 > It calls internal, undocumented endpoints that can change or disappear at any time.
@@ -315,6 +316,49 @@ the bottom right (or *Calculate task scores* in the Violentmonkey menu).
 - The numbers match `python3 task_scores.py --short --tz <your zone>`. For the histogram,
   by-batch table and the lowest / highest tasks with feedback, use the Python script.
 
+## Browser userscript: `payment_audit.user.js`
+
+[`userscripts/payment_audit.user.js`](userscripts/payment_audit.user.js) compares the tasks
+you did on AI Trainer with the deliverables Greenlight paid you for, batch by batch.
+
+**Install**: with Violentmonkey (see above), open
+[the raw script](https://raw.githubusercontent.com/jechav/linkedin-annotation-DAS-scripts/main/userscripts/payment_audit.user.js)
+and confirm the install. It runs on two sites, which can't see each other's session, so it
+passes data between them through the script's own Violentmonkey storage:
+
+1. **AI Trainer** (`www.linkedin.com/ai-trainer/...`): when you open any page, it lists your
+   tasks (one request per 50 tasks, at most every 15 minutes) and saves how many you did per
+   batch. *Sync tasks for payment audit* in the Violentmonkey menu syncs right away.
+2. **Greenlight** (`portal.greenlight.ai`): click **Audit** at the bottom right. It fetches all
+   your deliverables in one request, with the token the portal itself keeps, and compares.
+
+What the panel shows:
+
+- **One row per batch**: tasks you did (everything except `CANCELED`), Att Greenlight paid
+  (net of corrections), the difference, and that difference in dollars. Underpaid first,
+  then overpaid. Batches that match are hidden behind *Show N matching batches*. A status
+  column appears when some deliverable isn't status `4` (`2` looks like "approved, not paid
+  yet").
+- **Flags** on a row: *possible duplicate payment* (the same batch lines and amount in two
+  deliverables), *corrected* (a "Correction for incorrect payment" line was applied),
+  *ambiguous*, and how the names were matched when they weren't identical.
+- **Not billed yet**: LinkedIn batches with no Greenlight line, with the date of the last task.
+- **Paid on Greenlight, no LinkedIn batch found**: Greenlight lines with Att that matched nothing.
+- **Deliverable amounts that don't match their Att**: each deliverable should pay
+  Att × $21.67 ($65 per 3), minus any deduction in its notes.
+
+Batch names differ between the two sites, so they're matched in three steps:
+
+1. Same name, ignoring case, spaces and punctuation, a leading `H `, and LinkedIn's
+   ` Aesthetics/Functionality/Overall Preference <date>` ending.
+2. One name starts with the other (LinkedIn cuts names at 100 characters, and Greenlight
+   sometimes drops words). If several match, the longest wins and the row says *ambiguous*.
+3. The short code before the date: `… - S930 - Set BA - 2026-11-05` matches `… - Set BA - 2026-11-05`.
+
+The rate, `RATE_PER_ATT`, is a constant at the top of the script. Reviews (`Rev`) have no
+known rate, so deliverables with reviews skip the amount check. **Copy as text** copies the
+whole report.
+
 ## How it works
 
 | | `check_batches.py` | `tasks_weeks.py` | `task_scores.py` |
@@ -324,6 +368,12 @@ the bottom right (or *Calculate task scores* in the Violentmonkey menu).
 | Key fields | `elements[].pipelines[].{name,id,state}` | `state`, a timestamp field, `durationInSeconds` | `currentVersionReview.{annotationScore,status,feedback}`, `pipeline.name`, `inputData.title` |
 
 All send your cookie, `csrf-token` = `JSESSIONID`, and `x-restli-protocol-version: 2.0.0`.
+
+`payment_audit.user.js` also calls Greenlight:
+`GET https://app.greenlight.ai/ui/suppliers/{organization id}/time?start=…&end=…` with
+`authorization: Bearer <localStorage gl:a>` and `x-gl-member: base64("<organization id>|<role id>")`
+(both from `localStorage gl:m`). It reads `deliverables[].{date,status,amount,notes}`, where
+`notes` lists `<batch>- Att: N, Rev: M;` per batch.
 
 ## Troubleshooting
 
@@ -352,6 +402,9 @@ as you.
   contain your personal task data. `.env`, cookie files, `*.log`, `*.csv` and `scores*.json`
   are gitignored. Check `git status` before committing anyway.
 - If you think the cookie leaked, sign out of LinkedIn on all devices to invalidate the session.
+- The Greenlight bearer token (DevTools shows it in every `app.greenlight.ai` request) is a
+  login too. `payment_audit.user.js` reads it from the page when you click Audit and never
+  stores it. Don't paste it anywhere.
 
 ## License
 
