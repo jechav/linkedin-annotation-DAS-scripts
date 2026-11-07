@@ -7,6 +7,7 @@ Small personal helper scripts for annotators on LinkedIn's **AI Trainer** platfo
 | [`check_batches.py`](#check_batchespy) | "Is there any batch open for me right now?" |
 | [`tasks_weeks.py`](#tasks_weekspy) | "How many tasks and hours did I do each week?" |
 | [`task_scores.py`](#task_scorespy) | "What's my average review score, and which tasks scored worst / best?" |
+| [`task_scores.user.js`](#browser-userscript-task_scoresuserjs) | The same average and weekly table, one click away in your browser |
 
 > **Unofficial.** This project is not affiliated with, endorsed by, or supported by LinkedIn.
 > It calls internal, undocumented endpoints that can change or disappear at any time.
@@ -287,6 +288,32 @@ Lowest 10 (2 tasks scored 1), most recent first
          batch: Testing_01  | review: REJECTED
          > <the reviewer's feedback>
 ```
+
+## Browser userscript: `task_scores.user.js`
+
+[`userscripts/task_scores.user.js`](userscripts/task_scores.user.js) shows your average
+review score and the by-week table in a panel on the AI Trainer page. It runs in your
+logged-in browser session, so there's no cookie to copy and no terminal to open.
+
+**Install**: add [Violentmonkey](https://chromewebstore.google.com/detail/violentmonkey/jinjaccalgkegednnccohejagnlnfdag)
+to your browser, then open
+[the raw script](https://raw.githubusercontent.com/jechav/linkedin-annotation-DAS-scripts/main/userscripts/task_scores.user.js)
+and confirm the install. Violentmonkey checks that URL for updates.
+
+**Use**: open any `https://www.linkedin.com/ai-trainer/...` page and click **Scores** at
+the bottom right (or *Calculate task scores* in the Violentmonkey menu).
+
+- It lists your tasks across all projects (everything except `CANCELED`) and fetches each
+  task's detail, 3 at a time, with the same retries as `task_scores.py`. Nothing runs until
+  you click, and nothing is cached: every click fetches everything again.
+- The panel shows the average, scored / unscored counts, review status, and the by-week
+  table **newest week first**. Weeks are Monday-Sunday in your browser's time zone, grouped
+  by the same auto-detected date field as the Python scripts.
+- **Stop** ends the run and shows a partial result for what it fetched. An expired session
+  stops it too, with a message to sign in again.
+- **Copy as text** copies the report as plain text. **Refresh all** runs it again.
+- The numbers match `python3 task_scores.py --short --tz <your zone>`. For the histogram,
+  by-batch table and the lowest / highest tasks with feedback, use the Python script.
 
 ## How it works
 
