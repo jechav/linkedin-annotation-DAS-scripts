@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Trainer task scores
 // @namespace    https://github.com/jechav/linkedin-annotation-DAS-scripts
-// @version      0.1.0
+// @version      0.1.1
 // @description  Average review score of your AI Trainer tasks, overall and per week. Browser version of task_scores.py.
 // @match        https://www.linkedin.com/ai-trainer/*
 // @noframes
@@ -330,7 +330,14 @@
         </div>
       </section>
     </div>`;
-  document.body.appendChild(host);
+  // The page is React hydrating the whole document, and that runs after `load`. A node added
+  // before hydration finishes doesn't match the server HTML: React throws error #418, renders
+  // the document again and drops the node. So attach a bit after load, then check every second
+  // and re-attach if a later full re-render removed it.
+  const attach = () => { if (!host.isConnected && document.body) document.body.appendChild(host); };
+  const watch = () => { setTimeout(attach, 1500); setInterval(attach, 1000); };
+  if (document.readyState === "complete") watch();
+  else window.addEventListener("load", watch, { once: true });
 
   const $ = (s) => root.querySelector(s);
   const panel = $(".panel"), body = $(".body");
