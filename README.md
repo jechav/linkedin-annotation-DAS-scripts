@@ -330,7 +330,8 @@ passes data between them through the script's own Violentmonkey storage:
    tasks (one request per 50 tasks, at most every 15 minutes) and saves how many you did per
    batch. *Sync tasks for payment audit* in the Violentmonkey menu syncs right away.
 2. **Greenlight** (`portal.greenlight.ai`): click **Audit** at the bottom right. It fetches all
-   your deliverables in one request, with the token the portal itself keeps, and compares.
+   your deliverables in one request and your wallet transactions, with the token the portal
+   itself keeps, and compares.
 
 What the panel shows:
 
@@ -346,6 +347,13 @@ What the panel shows:
 - **Paid on Greenlight, no LinkedIn batch found**: Greenlight lines with Att that matched nothing.
 - **Deliverable amounts that don't match their Att**: each deliverable should pay
   Att × $21.67 ($65 per 3), minus any deduction in its notes.
+- **Actually paid (Greenlight wallet)**: what really reached your Greenlight wallet. Credits
+  (`Payment for <from> to <to>`) total, transfers out to your bank, and the balance. Then one
+  row per week: what the deliverables in that week billed, what was credited for it, the
+  difference, and the dates it was paid. A deliverable goes in the paid week that contains
+  its date (or its Monday-to-Sunday week when nothing was paid for it yet), so a week reads
+  *paid*, *not paid yet*, *paid short* or *paid extra*. *Show N transactions* lists every
+  credit and transfer. If the wallet can't be loaded, the batch audit still shows.
 
 Batch names differ between the two sites, so they're matched in three steps:
 
@@ -373,7 +381,10 @@ All send your cookie, `csrf-token` = `JSESSIONID`, and `x-restli-protocol-versio
 `GET https://app.greenlight.ai/ui/suppliers/{organization id}/time?start=…&end=…` with
 `authorization: Bearer <localStorage gl:a>` and `x-gl-member: base64("<organization id>|<role id>")`
 (both from `localStorage gl:m`). It reads `deliverables[].{date,status,amount,notes}`, where
-`notes` lists `<batch>- Att: N, Rev: M;` per batch.
+`notes` lists `<batch>- Att: N, Rev: M;` per batch. For what was actually paid it calls
+`GET https://app.greenlight.ai/ui/suppliers/paymentpreferences/{organization id}/transactions?supplierId={organization id}&pageSize=100&page=N`
+with the same headers, paging until `total`, and reads `data[].{amount,transactionType,description,transactionDate}`
+(`Credit` = a payment into the wallet, `Debit` = a transfer to your bank).
 
 ## Troubleshooting
 

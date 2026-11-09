@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Trainer payment audit
 // @namespace    https://github.com/jechav/linkedin-annotation-DAS-scripts
-// @version      0.1.0
+// @version      0.2.0
 // @description  Compares the tasks you did on LinkedIn AI Trainer with what Greenlight paid you, batch by batch.
 // @match        https://www.linkedin.com/ai-trainer/*
 // @match        https://portal.greenlight.ai/*
@@ -23,7 +23,8 @@
  *   LinkedIn AI Trainer: lists your tasks (one request per 50 tasks) and saves how many you did
  *                        per batch. Runs by itself on page load, at most every 15 minutes.
  *   Greenlight portal:   the Audit button fetches your deliverables and compares them with
- *                        the saved LinkedIn counts.
+ *                        the saved LinkedIn counts, then fetches your wallet transactions and
+ *                        compares what each week billed with what was actually credited.
  *
  * Core (no DOM) is exported for Node with module.exports, like task_scores.user.js.
  */
@@ -147,7 +148,117 @@
     const data = await r.json();
     const all = data.deliverables || [];
     const mine = data.userId ? all.filter((d) => !d.userId || d.userId === data.userId) : all;
-    return { deliverables: mine, others: all.length - mine.length };
+    return { deliverables: mine, all, others: all.length - mine.length };
+  }
+
+  // ---------- Greenlight: wallet transactions (what was actually paid) ----------
+
+  /** Every wallet transaction: Credit = a payment into the wallet, Debit = a transfer out to the bank. */
+  async function fetchTransactions(storage, { pageSize = 100 } = {}) {
+    const { org, headers } = glAuth(storage);
+    const id = encodeURIComponent(org);
+    const out = [];
+    for (let page = 0; ; page++) {
+      const url = `${GL_API}/suppliers/paymentpreferences/${id}/transactions?supplierId=${id}&pageSize=${pageSize}&page=${page}`;
+      const r = await fetch(url, { headers });
+      if (r.status === 401 || r.status === 403) throw new ExpiredError("Greenlight session expired. Reload the page and try again.");
+      if (!r.ok) throw new HttpError(r.status);
+      const data = await r.json();
+      if (data.success === false) throw new Error(`Greenlight transactions: ${data.error?.message || data.error || "request failed"}`);
+      const rows = data.data || [];
+      out.push(...rows);
+      if (!rows.length || out.length >= (data.total ?? 0) || rows.length < pageSize) return out;
+    }
+  }
+
+  // "Payment for 2026-10-19 to 2026-10-25"
+  const PAYMENT_FOR_RE = /payment for\s+(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})/i;
+
+  function parseTransaction(t) {
+    const m = PAYMENT_FOR_RE.exec(t.description || "");
+    return {
+      id: t.id,
+      date: String(t.transactionDate || t.createdAt || "").slice(0, 10),
+      amount: Number(t.amount) || 0,
+      credit: String(t.transactionType).toLowerCase() === "credit",
+      description: String(t.description || ""),
+      week: m ? { from: m[1], to: m[2] } : null,
+    };
+  }
+
+  /** "2026-10-22" -> "2026-10-19", the Monday of its week (Greenlight pays Monday to Sunday). */
+  function mondayOf(day) {
+    const ms = Date.parse(`${day}T00:00:00Z`);
+    if (!isNum(ms)) return null;
+    const dow = (new Date(ms).getUTCDay() + 6) % 7; // Monday = 0
+    return new Date(ms - dow * DAY_MS).toISOString().slice(0, 10);
+  }
+
+  /**
+   * Compare what deliverables billed, week by week, with the "Payment for <from> to <to>"
+   * credits in the wallet. Pure. diff = credited - billed; negative means not (fully) paid yet.
+   */
+  function reconcilePayouts(rawDeliverables, rawTransactions) {
+    const deliverables = rawDeliverables.map(parseDeliverable);
+    const txs = rawTransactions.map(parseTransaction).sort((a, b) => b.date.localeCompare(a.date));
+    const credits = txs.filter((t) => t.credit);
+    const debits = txs.filter((t) => !t.credit);
+
+    const weeks = new Map();
+    const week = (from, to) => {
+      if (!weeks.has(from)) weeks.set(from, { from, to: to || null, billed: 0, credited: 0, deliverables: 0, statuses: new Set(), paidOn: new Set() });
+      const w = weeks.get(from);
+      if (to && !w.to) w.to = to;
+      return w;
+    };
+    for (const c of credits) {
+      if (!c.week) continue;
+      const w = week(c.week.from, c.week.to);
+      w.credited += c.amount;
+      w.paidOn.add(c.date);
+    }
+    // a deliverable goes in the paid week that contains its date, else in its Monday-to-Sunday week
+    const ranges = [...weeks.values()].filter((w) => w.to);
+    for (const d of deliverables) {
+      if (!d.date || !d.amount) continue;
+      const hit = ranges.find((w) => w.from <= d.date && d.date <= w.to);
+      const from = hit ? hit.from : mondayOf(d.date);
+      if (!from) continue;
+      const w = week(from, hit ? hit.to : new Date(Date.parse(`${from}T00:00:00Z`) + 6 * DAY_MS).toISOString().slice(0, 10));
+      w.billed += d.amount;
+      w.deliverables++;
+      w.statuses.add(d.status);
+    }
+
+    const rows = [...weeks.values()]
+      .map((w) => {
+        const billed = round2(w.billed), credited = round2(w.credited), diff = round2(credited - billed);
+        const state = Math.abs(diff) <= TOLERANCE ? "paid" : credited === 0 ? "unpaid" : diff < 0 ? "short" : "over";
+        return { from: w.from, to: w.to, billed, credited, diff, state, deliverables: w.deliverables, statuses: [...w.statuses].sort(), paidOn: [...w.paidOn].sort() };
+      })
+      .sort((a, b) => b.from.localeCompare(a.from));
+
+    const sum = (xs) => round2(xs.reduce((s, x) => s + x.amount, 0));
+    const credited = sum(credits);
+    const withdrawn = sum(debits);
+    const billed = round2(deliverables.reduce((s, d) => s + d.amount, 0));
+    return {
+      rows,
+      transactions: txs,
+      otherCredits: credits.filter((c) => !c.week),
+      totals: {
+        billed,
+        credited,
+        withdrawn,
+        balance: round2(credited - withdrawn),
+        pending: round2(billed - credited),
+        payments: credits.length,
+        transfers: debits.length,
+        unpaidWeeks: rows.filter((r) => r.state === "unpaid").length,
+        shortWeeks: rows.filter((r) => r.state === "short").length,
+        overWeeks: rows.filter((r) => r.state === "over").length,
+      },
+    };
   }
 
   // ---------- reading a deliverable's notes ----------
@@ -382,11 +493,11 @@
   }
 
   /** Plain-text report, for "Copy as text". */
-  function formatText(res, { snapshot, now = Date.now() } = {}) {
+  function formatText(res, { snapshot, payouts, payoutsError, now = Date.now() } = {}) {
     const t = res.totals;
     const L = [];
     if (snapshot) L.push(`LinkedIn synced ${ago(snapshot.syncedAt, now)} (${snapshot.listed} tasks, ${snapshot.canceled} canceled)`);
-    L.push(`Greenlight: ${t.deliverables} deliverables, ${money(t.paidAmount)}, ${t.paidAtt} Att net`);
+    L.push(`Greenlight: ${t.deliverables} deliverables, ${money(t.paidAmount)} billed, ${t.paidAtt} Att net`);
     L.push(`Matched batches: ${t.tasksMatched} tasks done vs ${t.attMatched} Att paid (${signed(t.attMatched - t.tasksMatched)}, ${money((t.attMatched - t.tasksMatched) * res.rate)})`);
     L.push(`${t.under} underpaid, ${t.over} overpaid, ${t.ok} ok · rate ${money(res.rate)} per Att`);
     const pad = (s, n) => String(s).padStart(n);
@@ -416,12 +527,41 @@
       L.push("", "Note parts the script could not read:");
       for (const u of res.unparsed) L.push(`  ${u.date}  ${u.text}`);
     }
+    if (payouts) L.push("", formatPayoutsText(payouts));
+    else if (payoutsError) L.push("", `Actually paid: could not load wallet transactions (${payoutsError})`);
+    return L.join("\n");
+  }
+
+  const STATE_LABEL = { paid: "paid", unpaid: "not paid yet", short: "paid short", over: "paid extra" };
+
+  /** The "actually paid" part of the plain-text report. */
+  function formatPayoutsText(p) {
+    const t = p.totals;
+    const pad = (s, n) => String(s).padStart(n);
+    const L = [
+      "Actually paid (Greenlight wallet):",
+      `  ${money(t.credited)} credited in ${t.payments} payments · ${money(t.withdrawn)} transferred to your bank in ${t.transfers} · balance ${money(t.balance)}`,
+      `  ${money(t.billed)} billed in deliverables · ${money(t.pending)} ${t.pending >= 0 ? "not paid yet" : "paid beyond deliverables"}`,
+      "",
+      "week".padEnd(25) + pad("billed", 10) + pad("credited", 10) + pad("diff", 10) + "  state / paid on",
+    ];
+    for (const r of p.rows) {
+      L.push(`${r.from} to ${r.to || "?"}`.padEnd(25) + pad(money(r.billed), 10) + pad(money(r.credited), 10) + pad(money(r.diff), 10) +
+        `  ${STATE_LABEL[r.state]}${r.paidOn.length ? ` (${r.paidOn.join(", ")})` : ""}`);
+    }
+    if (p.otherCredits.length) {
+      L.push("", "Credits without a week:");
+      for (const c of p.otherCredits) L.push(`  ${c.date}  ${money(c.amount)}  ${c.description}`);
+    }
+    L.push("", "Transactions:");
+    for (const x of p.transactions) L.push(`  ${x.date}  ${x.credit ? "+" : "-"}${money(x.amount).padStart(9)}  ${x.description}`);
     return L.join("\n");
   }
 
   const Core = {
     RATE_PER_ATT, csrfToken, fetchAllTasks, snapshotOf, glAuth, fetchDeliverables, parseDeliverable,
     norm, codeKey, reconcile, formatText, flagsOf, ago, HttpError, ExpiredError,
+    fetchTransactions, parseTransaction, mondayOf, reconcilePayouts, formatPayoutsText,
   };
 
   if (typeof module === "object" && module.exports) {
@@ -543,7 +683,7 @@
         th { color: var(--muted); font-weight: 600; }
         td.l .name { display: block; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         td.l .flag { display: block; font-size: 12px; color: var(--warn-fg); white-space: normal; }
-        tr.match[hidden] { display: none; }
+        tr.match[hidden], tr.tx[hidden] { display: none; }
         .linkbtn { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; margin-top: 6px; }
         .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
         .actions button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 16px; cursor: pointer;
@@ -578,7 +718,33 @@
         ${res.showRev ? `<td>${r.rev}</td>` : ""}${res.showStatus ? `<td>${esc(r.statuses.join(",") || "-")}</td>` : ""}</tr>`;
     };
 
-    function render(res, snap, others) {
+    function payoutsHtml(p, error) {
+      if (!p) return `<h3>Actually paid</h3><div class="note warn">Could not load your Greenlight wallet transactions: ${esc(error || "unknown error")}. The batch audit above doesn't depend on them.</div>`;
+      const t = p.totals;
+      const cls = (x) => (Math.abs(x) <= 0.02 ? "ok" : x < 0 ? "neg" : "pos");
+      const stateCls = { paid: "ok", unpaid: "pos", short: "neg", over: "pos" };
+      const rows = p.rows
+        .map((r) => `<tr><td class="l">${r.from} to ${r.to || "?"}</td><td>${r.deliverables}</td><td>${money(r.billed)}</td><td>${money(r.credited)}</td>
+          <td class="${cls(r.diff)}">${money(r.diff)}</td><td class="l"><span class="${stateCls[r.state]}">${STATE_LABEL[r.state]}</span>${r.paidOn.length ? ` <span class="muted">${esc(r.paidOn.join(", "))}</span>` : ""}</td></tr>`)
+        .join("");
+      const txRows = p.transactions
+        .map((x) => `<tr class="tx" hidden><td class="l">${x.date}</td><td class="${x.credit ? "ok" : ""}">${x.credit ? "+" : "-"}${money(x.amount)}</td><td class="l">${esc(x.description)}</td></tr>`)
+        .join("");
+      const other = p.otherCredits.length
+        ? `<div class="note warn">${p.otherCredits.length} credit${p.otherCredits.length > 1 ? "s" : ""} without a "Payment for … to …" week: ${esc(p.otherCredits.map((c) => `${c.date} ${money(c.amount)} "${c.description}"`).join("; "))}</div>`
+        : "";
+      return `<h3>Actually paid (Greenlight wallet)</h3>
+        <div><b>${money(t.credited)}</b> credited in ${t.payments} payments · ${money(t.withdrawn)} transferred to your bank · balance <b>${money(t.balance)}</b></div>
+        <div>${money(t.billed)} billed in deliverables ·
+          <span class="${t.pending > 0.02 ? "pos" : t.pending < -0.02 ? "neg" : "ok"}">${money(Math.abs(t.pending))} ${t.pending >= 0 ? "not paid yet" : "paid beyond deliverables"}</span></div>
+        <div class="muted">${t.unpaidWeeks} weeks not paid yet · ${t.shortWeeks} paid short · ${t.overWeeks} paid extra · deliverables go in the paid week that contains their date</div>
+        ${p.rows.length ? `<table><thead><tr><th class="l">week</th><th>deliv.</th><th>billed</th><th>credited</th><th>diff</th><th class="l">state · paid on</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+        ${other}
+        ${p.transactions.length ? `<button class="linkbtn txtoggle">Show ${p.transactions.length} transactions</button>
+          <table><tbody>${txRows}</tbody></table>` : `<div class="muted">No wallet transactions yet.</div>`}`;
+    }
+
+    function render(res, snap, others, payouts, payoutsError) {
       const t = res.totals;
       const notes = [];
       const age = Date.now() - snap.syncedAt;
@@ -588,7 +754,8 @@
       const dup = res.rows.filter((r) => r.duplicates.length).length + res.unmatched.filter((u) => u.duplicates.length).length;
       if (dup) notes.push(["err", `${dup} batch${dup > 1 ? "es look" : " looks"} paid twice: the same deliverable appears on two dates.`]);
 
-      const summary = `<div>Greenlight: <b>${t.deliverables}</b> deliverables, <b>${money(t.paidAmount)}</b>, ${t.paidAtt} Att net</div>
+      const summary = `<div>Greenlight: <b>${t.deliverables}</b> deliverables, <b>${money(t.paidAmount)}</b> billed, ${t.paidAtt} Att net${
+        payouts ? ` · <b>${money(payouts.totals.credited)}</b> actually paid` : ""}</div>
         <div>Matched batches: ${t.tasksMatched} tasks done vs ${t.attMatched} Att paid
           (<span class="${t.attMatched < t.tasksMatched ? "neg" : t.attMatched > t.tasksMatched ? "pos" : "ok"}">${signed(t.attMatched - t.tasksMatched)}, ${money((t.attMatched - t.tasksMatched) * res.rate)}</span>)</div>
         <div class="muted">${t.under} underpaid · ${t.over} overpaid · ${t.ok} ok · ${money(res.rate)} per Att</div>`;
@@ -620,7 +787,7 @@
 
       body.innerHTML =
         notes.map(([cls, m]) => `<div class="${cls ? `note ${cls}` : "muted"}">${esc(m)}</div>`).join("") +
-        summary + table + notBilled + unmatched + amounts + extra;
+        summary + table + payoutsHtml(payouts, payoutsError) + notBilled + unmatched + amounts + extra;
       const toggle = root.querySelector(".toggle");
       toggle?.addEventListener("click", () => {
         const rows = root.querySelectorAll("tr.match");
@@ -628,7 +795,14 @@
         rows.forEach((tr) => (tr.hidden = hide));
         toggle.textContent = `${hide ? "Show" : "Hide"} ${t.ok} matching batches`;
       });
-      lastText = formatText(res, { snapshot: snap });
+      const txToggle = root.querySelector(".txtoggle");
+      txToggle?.addEventListener("click", () => {
+        const rows = root.querySelectorAll("tr.tx");
+        const hide = !rows[0]?.hidden;
+        rows.forEach((tr) => (tr.hidden = hide));
+        txToggle.textContent = `${hide ? "Show" : "Hide"} ${rows.length} transactions`;
+      });
+      lastText = formatText(res, { snapshot: snap, payouts, payoutsError });
     }
 
     async function start() {
@@ -644,8 +818,15 @@
           body.innerHTML = `<div class="note warn">No LinkedIn tasks saved yet. Open any AI Trainer page on linkedin.com while signed in (the script syncs by itself), then click Refresh.</div>`;
           return;
         }
-        const { deliverables, others } = await fetchDeliverables(localStorage);
-        render(reconcile(snap, deliverables), snap, others);
+        // the wallet is optional: if it fails, the batch audit still shows
+        const [{ deliverables, all, others }, txs] = await Promise.all([
+          fetchDeliverables(localStorage),
+          fetchTransactions(localStorage).then((v) => ({ v }), (e) => ({ e })),
+        ]);
+        if (txs.e instanceof ExpiredError) throw txs.e;
+        // the wallet belongs to the supplier organization, so compare it with every deliverable in it
+        const payouts = txs.v ? reconcilePayouts(all, txs.v) : null;
+        render(reconcile(snap, deliverables), snap, others, payouts, txs.e && (txs.e.message || String(txs.e)));
         copyBtn.hidden = false;
       } catch (e) {
         body.innerHTML = `<div class="note err">${esc(e.message || String(e))}</div>`;
