@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Trainer payment audit
 // @namespace    https://github.com/jechav/linkedin-annotation-DAS-scripts
-// @version      0.2.0
+// @version      0.2.1
 // @description  Compares the tasks you did on LinkedIn AI Trainer with what Greenlight paid you, batch by batch.
 // @match        https://www.linkedin.com/ai-trainer/*
 // @match        https://portal.greenlight.ai/*
@@ -460,6 +460,7 @@
         tasksAll,
         tasksMatched: tasksAll - tasksNotBilled,
         tasksNotBilled,
+        notBilledAmount: round2(tasksNotBilled * rate),
         attMatched: sum(out, (r) => r.att),
         under: out.filter((r) => r.diff < 0).length,
         over: out.filter((r) => r.diff > 0).length,
@@ -511,7 +512,7 @@
       for (const f of flagsOf(r)) L.push(" ".repeat(29) + "! " + f);
     }
     if (res.notBilled.length) {
-      L.push("", `Not billed yet: ${t.tasksNotBilled} tasks in ${res.notBilled.length} batches`);
+      L.push("", `Not billed yet: ${t.tasksNotBilled} tasks in ${res.notBilled.length} batches ${money(t.notBilledAmount)}`);
       for (const b of res.notBilled) L.push(`${pad(b.tasks, 6)}  last ${dayOf(b.last)}  ${b.name}`);
     }
     if (res.unmatched.length) {
@@ -769,7 +770,7 @@
         : `<div class="muted">No LinkedIn batch matched a Greenlight line.</div>`;
 
       const notBilled = res.notBilled.length
-        ? `<h3>Not billed yet: ${t.tasksNotBilled} tasks in ${res.notBilled.length} batches</h3><table><thead><tr><th class="l">batch</th><th>tasks</th><th>last task</th></tr></thead><tbody>${res.notBilled
+        ? `<h3>Not billed yet: ${t.tasksNotBilled} tasks in ${res.notBilled.length} batches ${money(t.notBilledAmount)}</h3><table><thead><tr><th class="l">batch</th><th>tasks</th><th>last task</th></tr></thead><tbody>${res.notBilled
             .map((b) => `<tr><td class="l"><span class="name" title="${esc(b.name)}">${esc(b.name)}</span></td><td>${b.tasks}</td><td>${dayOf(b.last)}</td></tr>`).join("")}</tbody></table>`
         : "";
       const unmatched = res.unmatched.length
